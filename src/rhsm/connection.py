@@ -24,6 +24,9 @@ import os
 import socket
 import sys
 import urllib
+import time
+
+import lockfile 
 
 from M2Crypto import SSL, httpslib
 from M2Crypto.SSL import SSLError
@@ -35,6 +38,9 @@ from config import initConfig
 
 import version
 python_rhsm_version = version.rpm_version
+
+
+CONSUMER_UPDATE_LOCK = lockfile.LinkFileLock("/var/lock/consumer_update")
 
 try:
     import subscription_manager.version
@@ -1007,9 +1013,16 @@ class UEPConnection:
         # here:
         if service_level is not None:
             params['serviceLevel'] = service_level
-
-        method = "/consumers/%s" % self.sanitize(uuid)
-        ret = self.conn.request_put(method, params)
+        
+        try:
+            CONSUMER_UPDATE_LOCK.acquire(timeout=30)
+            method = "/consumers/%s" % self.sanitize(uuid)
+            ret = self.conn.request_put(method, params)
+            time.sleep(0.5)
+        except lockfile.LockTimeout:
+            pass
+        finally:
+            CONSUMER_UPDATE_LOCK.release()
         return ret
 
     def addOrUpdateGuestId(self, uuid, guestId):
